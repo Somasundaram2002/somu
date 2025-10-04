@@ -2,7 +2,7 @@ pipeline {
   agent any
 
   environment {
-    DOCKER_BUILDKIT = '1'
+    DOCKER_BUILDKIT = '0'
     IMAGE = 'somasundaram2002/somu'   // change if needed
   }
 
