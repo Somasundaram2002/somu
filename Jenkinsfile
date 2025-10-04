@@ -2,7 +2,8 @@ pipeline {
   agent any
 
   environment {
-    COMMIT_ID = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+    DOCKER_BUILDKIT = '1'                               // enable BuildKit
+    IMAGE = 'somasundaram2002/somu'
   }
 
   tools {
@@ -10,29 +11,50 @@ pipeline {
   }
 
   stages {
-    stage('Preparation') {
+    stage('Prep') {
       steps {
         checkout scm
-        echo "Commit id: ${COMMIT_ID}"
+        script {
+          COMMIT_ID = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+          env.TAG = COMMIT_ID
+        }
+        echo "Commit id: ${env.TAG}"
       }
     }
 
-    stage('Test') {
+    stage('Unit tests') {
       steps {
-        sh 'npm install'
+        sh 'npm ci'                                      // faster, reproducible
         sh 'npm test'
       }
     }
 
-    stage('Docker Build & Push') {
+    stage('Docker buildx push') {
       steps {
-        script {
-          docker.withRegistry('', 'dockerhub') {
-            def appImage = docker.build("somasundaram2002/somu:${COMMIT_ID}", '.')
-            appImage.push()
-          }
+        sh 'docker buildx create --use || true'          // idempotent
+        withCredentials([usernamePassword(credentialsId: 'dockerhub',
+                          usernameVariable: 'DH_USER', passwordVariable: 'DH_PASS')]) {
+          sh 'echo "$DH_PASS" | docker login -u "$DH_USER" --password-stdin'
         }
+        // optional: registry cache to avoid rebuilding/pushing unchanged layers
+        sh """
+          docker buildx build \
+            --platform linux/amd64 \
+            --cache-to type=registry,ref=${IMAGE}:cache,mode=max \
+            --cache-from type=registry,ref=${IMAGE}:cache \
+            -t ${IMAGE}:${TAG} --push .
+        """
       }
     }
+
+    stage('Cleanup (optional)') {
+      steps {
+        sh 'docker logout || true'
+      }
+    }
+  }
+
+  options {
+    timeout(time: 20, unit: 'MINUTES')                  // avoid stuck runs
   }
 }
