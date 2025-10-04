@@ -1,0 +1,26 @@
+node {
+  def commit_id = ''
+
+  stage('Preparation') {
+    checkout scm
+    commit_id = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
+    echo "Commit id: ${commit_id}"
+  }
+
+  stage('test') {
+    // nodejs wrapper requires a NodeJS installation named 'nodejs' in Global Tool Config
+    nodejs(nodeJSInstallationName: 'nodejs') {
+      sh 'npm install --only=dev'
+      sh 'npm test'
+    }
+  }
+
+  stage('docker build/push') {
+    // Uses Jenkins credentials with ID 'dockerhub' for Docker Hub login
+    docker.withRegistry('', 'dockerhub') {
+      // Build Docker image tagged as somasundaram2002/somu:commit_id
+      def appImage = docker.build("somasundaram2002/somu:${commit_id}", '.')
+      appImage.push()
+    }
+  }
+}
